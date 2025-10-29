@@ -1,0 +1,321 @@
+---
+title: "STAT 4444 Final Project"
+author: "Ryan Webster Class ID: 76"
+format: pdf
+editor: visual
+---
+
+```{r, echo = F, message=F, results='hide', warning=F}
+library(tidyverse)
+library(ggcorrplot)
+library(car)
+library(rjags)
+library(leaps)
+library(knitr)
+nc_obama_2012 <- readxl::read_xls("Obama2012.xls")
+```
+
+# Introduction
+
+This paper will employ Multiple Linear Regression from both frequentist and Bayesian perspectives to develop a linear model aimed at predicting and identifying key factors influencing President Obama's vote share in North Carolina during the 2012 election. These MLR models will utilize various race, economic, and educational demographic factors from each of the 100 counties in North Carolina with the response variable being President Obama's vote share in the respective county.
+
+## Data
+
+In this dataset, there are 100 rows, one for each of the 100 counties in North Carolina along with 12 covariates containing the demographic data of its respective county. Shown below in *Table 1* is a data dictionary of each of the variables in the dataset.
+
+| Variable          | Description                                         |
+|-------------------|-----------------------------------------------------|
+| County            | The name of the county                              |
+| PCTOBAMA          | Obama's vote share                                  |
+| Pop2010           | Population as of 2010                               |
+| PopPerSqMile      | Population per square mile                          |
+| PctWhite          | Percent of population that is White                 |
+| PctBlack          | Percent of population that is Black                 |
+| PctAmericanIndian | Percent of population that is American Indian       |
+| PctAsian          | Percent of population that is Asian                 |
+| PctHisp           | Percent of population that is Hispanic              |
+| DiversityIndex    | Value which represents how 'diverse' a county is.   |
+| pct_Uninsured     | Percent of population that is uninsured             |
+| post_sec_edu      | Percent of population with post-secondary education |
+| pct_unemployed    | Percent of population unemployed                    |
+
+: Data Dictionary of NC Dataset
+
+Shown below in *Table 2* are the summary statistics of the dataset:
+
+```{r, echo = F}
+t(
+  sapply(
+  nc_obama_2012[, -1], function(x) c(
+  Mean = round(mean(x), 2),
+  Median = round(median(x), 2),
+  SD = round(sd(x), 2),
+  Min = round(min(x), 2),
+  Max = round(max(x), 2)
+))) %>% kable(caption = "Summary Statistics")
+
+```
+
+To begin the MLR process, it's necessary to identify linear trends between the predictor (PCTOBAMA) to each of the other factors. A matrix scatter plot should be avoided due to the large number of parameters, which would make the plots unreadable. Instead, a correlation matrix heatmap was made which measures variables' correlation coefficient between each other.
+
+```{r, echo = F}
+ggcorrplot(cor(nc_obama_2012[, -1]), type = "lower")
+```
+
+From observing this correlation heatmap, there seems to be a strong linear trend between PCTOBAMA and PctWhite, PctBlack, and DiversityIndex. More specifically, a negative correlation between PCTOBAMA and PctWhite and a positive correlation between PCTOBAMA and PctBlack and DiversityIndex. These results makes sense considering how different races vote is well knows. Typically, at least in 2012, white voters typically favored the Republican candidate while non-white voters favored the Democrat candidate. This seems to not be an exception in North Carolina during the 2012 election. However, using the variables PctWhite, PctBlack, and Diversity Index as factors in the analysis could cause issues concerning multicollinearity as these variables would have high linear dependence between them (PctWhite is affected by PctBlack and vice versa. Additionally, Diversity Index most likely is influenced by PctWhite and PctBlack). Also, it's possible there are variables that aren't statistically significant in predicting PCTOBAMA, but could be if combined with other variables. So, a best subset model selection method will be used to determine what factors to use.
+
+## Model Selection
+
+Using the leaps library, a best subset selection method was ran, which tracks the best model of each number of parameters based on various metric performances. Shown below are the model performance based on the best model for each number of parameters for Adjusted $R^2$, Mallows' CP, BIC, and RSS.
+
+```{r, echo = F}
+all_subsets <- regsubsets(
+  PCTOBAMA ~ ., 
+  data = nc_obama_2012[, -1], 
+  nvmax = NULL
+)
+subsets_summary <- summary(all_subsets)
+
+with(subsets_summary, {
+  par(mfrow = c(2, 2))
+plot(
+  1:11, 
+  adjr2, 
+  type = "l", 
+  xlab = "Parameter Count", 
+  ylab = "Adjusted R2"
+)
+plot(
+  1:11, 
+  cp, 
+  type = "l",
+  xlab = "Parameter Count", 
+  ylab = "Mallows' CP"
+)
+plot(
+  1:11, 
+  bic, 
+  type = "l",
+  xlab = "Parameter Count", 
+  ylab = "BIC"
+)
+plot(
+  1:11, 
+  rss, 
+  type = "l",
+  xlab = "Parameter Count", 
+  ylab = "RSS"
+)
+})
+
+```
+
+From these results, it could be concluded that the best and simplest model would be the one with three variables. However, because this result contains variables PctWhite and DiversityIndex, there is high concern for multicolinearity, which can cause serious consequences to our interpretation of the model results. This can be concluded by looking at their VIF values.
+
+```{r, echo = F}
+lm(
+  PCTOBAMA ~ PctWhite + DiversityIndex + post_sec_edu, 
+  data = nc_obama_2012
+) %>% vif() %>% kable(col.names = "VIF", caption = "Multicolinearity Check")
+  
+```
+
+With VIF values greater than 5, it can be concluded that the multicollinearity issues between PctWhite and DiversityIndex are valid. Some possible solutions could be to use LASSO or Ridge regression to shrink or zero out coefficients, but instead the best model with two variables, PctWhite and post_sec_edu will be used instead.
+
+# MLR: Frequentist
+
+Using the lm() function, a MLR model will be created as PCTOBAMA as the response and PctWhite and post_sec_edu as the covariates.
+
+```{r, echo = F}
+mlr_freq <- lm(
+  PCTOBAMA ~ PctWhite + post_sec_edu, 
+  data = nc_obama_2012[, -1]
+)
+mlr_freq_summary <- summary(mlr_freq)
+kable(mlr_freq_summary[["coefficients"]], caption = "Coefficient Summary")
+```
+
+According to the model, parameters PctWhite and post_sec_edu were significant with p-values \< 0.05. This is despite the fact that the relationship between post_sec_edu and PCTOBAMA was not linear, but together with PctWhite, it is. As one would expect, the higher the share of the White population in a county negatively impacts President Obama's vote share. Additionally, counties with higher percent of post-secondary education contributed to Obama's vote share, albeit a very small amount, but statistically significant.. The MLR equation for predicting President Obama's vote share by county follows:
+
+$$PCTOBAMA = 0.712 - 0.606(PctWhite) + 0.003(post\_sec\_edu) + \epsilon$$
+
+So, starting at 71.2% for President Obama in a North Carolina county, subtract 0.606 for every percent of White people, assuming post secondary education is constant, and add 0.003 for every percent of post secondary education in a county, assuming percent of White people is constant.
+
+## Assumptions
+
+In order for the MLR to produce valid results, there are three assumptions that must be met: constant variance, normally distributed errors, and independent observations.
+
+### Constant Variance
+
+To test for constant variance, a scatterplot showing the fitted values versus the residuals should be made, ideally with no obvious patterns and difference of spread along the horizontal line.
+
+```{r, echo = F}
+plot(
+  mlr_freq$fitted.values, 
+  mlr_freq$residuals, 
+  xlab = "Fitted Values",
+  ylab = "Residuals",
+  main = "Versus Fits"
+)
+abline(0, 0, lty = 2)
+```
+
+The assumption of constant variance passes as there is no sign of patterns or difference in spread in the fitted values vs. residuals scatter plot.
+
+### Normally Distributed Errors
+
+Testing for Normally distributed errors is done by creating a Q-Q plot. Ideally, the points should lie on the 45 degree line.
+
+```{r, echo = F}
+par(mfrow = c(1, 2))
+qqnorm(mlr_freq$residuals)
+qqline(mlr_freq$residuals)
+hist(
+  mlr_freq$residuals, 
+  xlab = "Residuals", 
+  main = "Histogram of Residuals"
+)
+```
+
+There seems to be some concern for heavy tails and right skewness. To further verify this conclusion, the Shapiro-Wilk test will be used as a statistical hypothesis test where the null hypothesis is that the errors are normally distributed and the alternative is that the errors are not normally distributed.
+
+```{r, echo = F}
+shapiro.test(mlr_freq$residuals)
+```
+
+This result further verify's the concern for non-normal residuals. We will have to be sure to note this break in our assumptions in the analysis.
+
+### Independence
+
+To test for independence, a scatterplot will be made to measure the order of the residual and its actual value. Ideally, having no obvious pattern along the horizontal line is a good sign of independence. This shouldn't be an issue as this isn't a time series data set and the result in one county wouldn't influence the other.
+
+```{r, echo = F}
+plot(
+  mlr_freq$residuals, 
+  xlab="Residual orders", 
+  ylab="Residual value",
+  main = "Versus Order"
+)
+abline(0, 0, lty = 2)
+```
+
+Like expected, there is no obvious pattern. A statistical test called the Durbin Watson test can be used to test for linearity/autocorrelation where the null hypothesis is the data is independent and the alternative is that the data isn't independent.
+
+```{r, echo = F}
+durbinWatsonTest(mlr_freq)
+```
+
+The result of the Durbin Watson test concludes that the data is independent by not rejecting the null hypothesis.
+
+# MLR: Bayesian
+
+To begin the Bayesian analysis, the rjags library will be used to as the Gibbs' Sampler to estimate coefficient posterior distributions for $\beta_0$, $\beta_1$, $\beta_2$, and $\sigma^2$.
+
+## Priors
+
+For the priors of each of the parameters, an uninformative prior will be used on $\beta_1$, $\beta_2$, and $\sigma^2$ while an informative prior can be found for the intercept based on the hypothetical question of how much vote share would Obama win in a county that is 0% White and 0% post-secondary education, as the intercept of the MLR is simply the expected value when all other values are zeroed out. Although this scenario is unrealeastic, one could expect this hypothetical county would give Obama a high vote share of around 90% based on vote shares with similar demographics as this hypothetical (i.e., Claiborne County, Mississippi, where Obama won 88% of the vote (2012) in this 14% White county).
+
+$\beta_1$: PctWhite, $\beta_2$: post_sec_edu
+
+$$
+\beta_0 \sim N(0.9, 0.05) \quad \beta_1 \sim N(0, 100) \quad \beta_2 \sim N(0, 100) \quad \sigma^2 \sim IG(0.1, 0.1)
+$$
+
+## Gibbs' Sampler
+
+```{r, echo = F}
+mlr_bayes <- "model{
+
+  # Likelihood function - data distribution
+  for(i in 1:n){
+    PCTOBAMA[i] ~ dnorm(beta0 + beta1 * PctWhite[i] + beta2 * post_sec_edu[i], tau2)
+  }
+
+  # Prior for beta
+  beta0 ~ dnorm(0.9, 1 / (0.05))
+  beta1 ~ dnorm(0, 1 / 100)
+  beta2 ~ dnorm(0, 1 / 100)
+
+  # Prior for the inverse variance
+  tau2 ~ dgamma(0.1, 0.1)
+  sigma2 <- 1/tau2
+}"
+```
+
+```{r, results = 'hide', echo = F}
+n <- nrow(nc_obama_2012)
+
+reg_model <- jags.model(
+  textConnection(mlr_bayes),
+  n.chains = 3,
+  data = list(
+    PCTOBAMA = nc_obama_2012$PCTOBAMA, # Response
+    PctWhite = nc_obama_2012$PctWhite, # B1
+    post_sec_edu = nc_obama_2012$post_sec_edu, #B2
+    n = n
+  )
+)
+```
+
+```{r, echo = F}
+update(reg_model, 10000, progress.bar = "none")
+post_samples <- coda.samples(
+  reg_model,
+  variable.names = c("beta0", "beta1", "beta2", "sigma2"),
+  n.iter = 20000,
+  progress.bar = "none"
+)
+mlr_bayes_summary <- summary(post_samples)
+kable(mlr_bayes_summary$statistics, caption = "Coefficient Summary")
+kable(mlr_bayes_summary$quantiles, caption = "Coefficient Quantiles")
+```
+
+## Trace Plots and Parameter Posterior Distribution
+
+Shown below are the trace plots and density distributions of each of the parameters:
+
+```{r, echo = F}
+#| fig-width: 6
+#| fig-height: 6
+plot(post_samples)
+```
+
+In this example, three chains were used and they all seemed to behave well according to the trace plots.
+
+## Gelman Plots and Effective Sample Size
+
+To determine if the parameters converged, Gelman Plots can be used to determine if the effects of the initial value has successfully been removed by observing the variances between the different chains.
+
+```{r, echo = F}
+gelman.plot(post_samples)
+```
+
+According to the Gelman plots, each of the parameters converged as the median values quickly approached zero. Now, to observe the sample size of the actual independent information in the posterior distribution for each parameter, the effectiveSize function can be used to calculate those values.
+
+```{r, echo = F}
+kable(
+  effectiveSize(post_samples), 
+  col.names = "Effective Sample Size", 
+  round = 2,
+  caption = "Effective Sample Size"
+)
+```
+
+The effective sample sizes are sufficient for this model.
+
+# Comparisons
+
+Overall, the coefficients between the frequentest, Ordinary Least Squares approach should be similar to the Bayesian approach, especially as the priors for $\beta_1$, $\beta_2$, and $\sigma^2$ were all uninformative. Shown below is a table comparing the coefficients computed from the OLS method and the mean coefficient values of the respective posterior distributions:
+
+```{r, echo = F}
+kable(
+  data.frame(
+    "Frequentist" = mlr_freq$coefficients,
+    "Bayesian" = mlr_bayes_summary$statistics[1:3, 1]
+  ),
+  caption = "MLR Coefficient Values of OLS and Bayesian"
+)
+
+```
+
+As expected, the coefficient values from OLS and Bayesian are nearly identical. This is due to the priors of the coefficients being uninformed (beside the intercept, which its prior mean was greater than the OLS estimate, so the Bayesian estimate of the intercept is greater than the OLS).
