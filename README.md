@@ -91,25 +91,6 @@ library(rjags)        # Bayesian MCMC
 library(coda)         # MCMC diagnostics
 ```
 
-## Project Structure
-
-```
-.
-├── README.md
-├── Final-Project.pdf
-├── data/
-│   └── nc_election_data.csv
-├── scripts/
-│   ├── data_exploration.R
-│   ├── model_selection.R
-│   ├── frequentist_analysis.R
-│   └── bayesian_analysis.R
-└── figures/
-    ├── correlation_heatmap.png
-    ├── model_diagnostics.png
-    └── trace_plots.png
-```
-
 ## Interpretation
 
 The analysis reveals that racial demographics (specifically the percentage of White population) were the strongest predictor of Obama's vote share in North Carolina counties during the 2012 election. Educational attainment also played a statistically significant but smaller role. These findings align with well-documented voting patterns from the 2012 election cycle.
@@ -123,7 +104,7 @@ The analysis reveals that racial demographics (specifically the percentage of Wh
 
 ## Author
 
-Ryan Webster (Class ID: 76)  
+Ryan Webster
 STAT 4444 Final Project
 
 ## License
